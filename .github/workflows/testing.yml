@@ -18,14 +18,17 @@ jobs:
     steps:
       - uses: actions/checkout@v3
       - name: Create Updater JSON
+        env:
+          TAURI_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
         shell: bash
         run: |
-            pwd
-            ls -la
+          pwd
+          ls -la
+          echo "test" > test.txt
       - name: GIST Updater
         uses: exuanbo/actions-deploy-gist@v1
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          gist_id: from_gist_url
-          file_path: build/book.pdf
-          file_type: binary
+          gist_id: 0fa827e6892a79ae305921ae947f8764
+          file_path: test.txt
+          file_type: txt
