@@ -1,4 +1,4 @@
-name: 'publish'
+name: "publish"
 on:
   push:
     branches:
@@ -35,7 +35,9 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tagName: v__VERSION__
-          releaseName: 'bundol v__VERSION__'
+          releaseName: "bundol v__VERSION__"
           prerelease: false
           includeUpdaterJson: true
           updaterJsonPreferNsis: true
+      - name: debug-print
+        run: echo TAURI-RELEASE "${{ steps.tauri-action.outputs.releaseId }}""
