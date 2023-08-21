@@ -3,11 +3,11 @@ import { appWindow } from "@tauri-apps/api/window";
 export function TitleBar() {
   return (
     <div
-      class="text-truegray-3 bg-dark-7 w-full h-8 flex
+      class="text-truegray-3 bg-dark-7 w-full h-8 flex select-none
             items-center justify-end children:(cursor-pointer p-1) hover:children:bg-dark-3"
       data-tauri-drag-region
     >
-      <div class="justify-self-start mr-auto px-3 font-bold font-inter">
+      <div class="!hover:bg-dark-7 justify-self-start mr-auto px-3 font-bold !cursor-default">
         bundol
       </div>
       <div

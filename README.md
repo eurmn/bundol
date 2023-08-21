@@ -1,3 +1,3 @@
 # bundol
 
-Se divirta no League of Legends
+~~Não~~ se divirta no League of Legends

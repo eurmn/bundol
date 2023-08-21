@@ -26,7 +26,8 @@
         "minimize": true,
         "unmaximize": true,
         "unminimize": true,
-        "startDragging": true
+        "startDragging": true,
+        "requestUserAttention": true
       }
     },
     "bundle": {
@@ -51,9 +52,12 @@
         "resizable": false,
         "title": "bundol",
         "width": 1200,
-        "height": 800,
-        "additionalBrowserArgs": "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --ignore-certificate-errors --disable-web-security --disable-site-isolation-trials"
+        "height": 800
       }
-    ]
+    ],
+    "systemTray": {
+      "iconPath": "icons/icon.png",
+      "iconAsTemplate": true
+    }
   }
 }
