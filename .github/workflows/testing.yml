@@ -1,0 +1,31 @@
+name: "testing"
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  publish-tauri:
+    permissions:
+      pull-requests: write
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [windows-latest]
+
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v3
+      - name: Create Updater JSON
+        shell: bash
+        run: |
+            pwd
+            ls -la
+      - name: GIST Updater
+        uses: exuanbo/actions-deploy-gist@v1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          gist_id: from_gist_url
+          file_path: build/book.pdf
+          file_type: binary

@@ -2,7 +2,7 @@ name: "publish"
 on:
   push:
     branches:
-      - main
+      - other
 
 jobs:
   publish-tauri:
@@ -49,14 +49,14 @@ jobs:
           echo "  ${{ steps.tauri-action.outputs.artifactPaths }}"
       - name: Create Updater JSON
         run: |
-          echo pwd
-          echo ls -la 
-          export signature=$(cat src-tauri/target/release/bundle/nsis/bundol_${{ steps.tauri-action.outputs.releaseId }}_x64-setup.nsis.zip.sig)
+          echo $PWD
+          Get-ChildItem -Force -Recurse -ErrorAction SilentlyContinue
+          $signature = Get-Content -Raw src-tauri/target/release/bundle/nsis/bundol_${{ steps.tauri-action.outputs.releaseId }}_x64-setup.nsis.zip.sig
           echo "{
             "version": "${{ steps.tauri-action.outputs.releaseId }}",
             "platforms": {
                 "windows-x86_64": {
-                    "signature": "${signature}",
+                    "signature": "$signature",
                     "url": "https://gist.github.com/eurmn/0fa827e6892a79ae305921ae947f8764"
                 }
             }
