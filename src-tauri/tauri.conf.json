@@ -11,6 +11,14 @@
     "version": "0.0.1"
   },
   "tauri": {
+    "updater": {
+      "active": true,
+      "dialog": true,
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEI0RDY4RkJDMDEyMjRDN0QKUldSOVRDSUJ2SS9XdE5KcmhScUFhVlJuc2ErQVdyaVJxazNtS2tveTBlOVgrSndmVkRrLzBOV3YK",
+      "windows": {
+        "installMode": "passive"
+      }
+    },
     "allowlist": {
       "all": false,
       "shell": {
@@ -32,7 +40,7 @@
     },
     "bundle": {
       "active": true,
-      "targets": "all",
+      "targets": ["nsis", "updater"],
       "identifier": "com.eurmn.bundol",
       "icon": [
         "icons/32x32.png",
@@ -40,7 +48,14 @@
         "icons/128x128@2x.png",
         "icons/icon.icns",
         "icons/icon.ico"
-      ]
+      ],
+      "windows": {
+        "nsis": {
+          "installerIcon": "icons/icon.ico",
+          "sidebarImage": "sidebar.bmp",
+          "languages": ["PortugueseBR"]
+        }
+      }
     },
     "security": {
       "csp": null
