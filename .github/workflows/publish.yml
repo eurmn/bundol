@@ -7,6 +7,7 @@ on:
 jobs:
   publish-tauri:
     permissions:
+      pull-requests: write
       contents: write
     strategy:
       fail-fast: false
@@ -30,7 +31,8 @@ jobs:
       - uses: tauri-apps/tauri-action@v0
         id: tauri-action
         env:
-          TAURI_PRIVATE_KEY: ${{ vars.TAURI_PRIVATE_KEY }}
+          TAURI_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
+          TAURI_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tagName: v__VERSION__
@@ -45,11 +47,24 @@ jobs:
           echo "  ${{ steps.tauri-action.outputs.releaseHtmlUrl }}"
           echo "  ${{ steps.tauri-action.outputs.releaseUploadUrl }}"
           echo "  ${{ steps.tauri-action.outputs.artifactPaths }}"
-          # done
-      # - name: GIST Updater
-      #   uses: exuanbo/actions-deploy-gist@v1
-      #   with:
-      #     token: ${{ secrets.GITHUB_TOKEN }}
-      #     gist_id: from_gist_url
-      #     file_path: build/book.pdf
-      #     file_type: binary
+      - name: Create Updater JSON
+        run: |
+          echo pwd
+          echo ls -la 
+          export signature=$(cat src-tauri/target/release/bundle/nsis/bundol_${{ steps.tauri-action.outputs.releaseId }}_x64-setup.nsis.zip.sig)
+          echo "{
+            "version": "${{ steps.tauri-action.outputs.releaseId }}",
+            "platforms": {
+                "windows-x86_64": {
+                    "signature": "${signature}",
+                    "url": "https://gist.github.com/eurmn/0fa827e6892a79ae305921ae947f8764"
+                }
+            }
+          }" > build/updater.json
+      - name: GIST Updater
+        uses: exuanbo/actions-deploy-gist@v1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          gist_id: from_gist_url
+          file_path: build/book.pdf
+          file_type: binary
