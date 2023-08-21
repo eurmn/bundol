@@ -6,8 +6,6 @@ on:
 
 jobs:
   publish-tauri:
-    outputs:
-      release_id: ${{ steps.tauri-action.outputs.releaseId }}
     permissions:
       contents: write
     strategy:
@@ -32,6 +30,7 @@ jobs:
       - uses: tauri-apps/tauri-action@v0
         id: tauri-action
         env:
+          TAURI_PRIVATE_KEY: ${{ vars.TAURI_PRIVATE_KEY }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tagName: v__VERSION__
@@ -40,4 +39,17 @@ jobs:
           includeUpdaterJson: true
           updaterJsonPreferNsis: true
       - name: debug-print
-        run: echo TAURI-RELEASE "${{ steps.tauri-action.outputs.releaseId }}""
+        run: |
+          echo "tauri-action outputs:"
+          echo "  ${{ steps.tauri-action.outputs.releaseId }}"
+          echo "  ${{ steps.tauri-action.outputs.releaseHtmlUrl }}"
+          echo "  ${{ steps.tauri-action.outputs.releaseUploadUrl }}"
+          echo "  ${{ steps.tauri-action.outputs.artifactPaths }}"
+          # done
+      # - name: GIST Updater
+      #   uses: exuanbo/actions-deploy-gist@v1
+      #   with:
+      #     token: ${{ secrets.GITHUB_TOKEN }}
+      #     gist_id: from_gist_url
+      #     file_path: build/book.pdf
+      #     file_type: binary
