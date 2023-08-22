@@ -13,7 +13,8 @@ interface ISummonerData {
 }
 
 function App() {
-  setInterval(checkForUpdates, 1000 * 60 * 5);
+  checkForUpdates();
+
   let listeners: Promise<UnlistenFn>[] = [];
 
   onCleanup(() => {

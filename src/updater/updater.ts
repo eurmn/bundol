@@ -1,25 +1,29 @@
 import { checkUpdate } from "@tauri-apps/api/updater";
 import { WebviewWindow } from "@tauri-apps/api/window";
 
-export async function checkForUpdates() {
-  try {
-    const { shouldUpdate } = await checkUpdate();
+export function checkForUpdates() {
+  let i = setInterval(async () => {
+    try {
+      const { shouldUpdate } = await checkUpdate();
 
-    if (shouldUpdate) {
-      let w = new WebviewWindow("updaterWindow", {
-        url: "/updater",
-        width: 400,
-        height: 250,
-        decorations: false,
-        resizable: false,
-        center: true,
-        title: "bundol - Atualização Disponível",
-        focus: true,
-      });
+      if (shouldUpdate) {
+        let w = new WebviewWindow("updaterWindow", {
+          url: "/updater",
+          width: 400,
+          height: 250,
+          decorations: false,
+          resizable: false,
+          center: true,
+          title: "bundol - Atualização Disponível",
+          focus: true,
+        });
 
-      w.listen("tauri://error", console.log);
+        w.listen("user-interacted", () => {
+          clearInterval(i);
+        });
+      }
+    } catch (error) {
+      console.error(error);
     }
-  } catch (error) {
-    console.error(error);
-  }
+  }, 1000 * 60 * 20);
 }

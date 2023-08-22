@@ -18,6 +18,11 @@ export function Updater() {
   getVersion().then((v) => setCurrentVersion(v));
   appWindow.requestUserAttention(UserAttentionType.Critical);
 
+  async function ignoreUpdate() {
+    await appWindow.emit("user-interacted");
+    await appWindow.close();
+  }
+
   async function update() {
     setUpdating(true);
 
@@ -34,8 +39,7 @@ export function Updater() {
     );
 
     try {
-      let r = await installUpdate();
-      console.log(r);
+      await installUpdate();
       unlisten();
       await relaunch();
     } catch (e) {
@@ -63,7 +67,7 @@ export function Updater() {
       <Show when={!updating()}>
         <div class="flex justify-end gap-1 text-sm items-end">
           <div
-            onclick={() => appWindow.close()}
+            onclick={() => ignoreUpdate()}
             class="flex mx-3 my-2 text-truegray-3 cursor-pointer"
           >
             Ignorar
