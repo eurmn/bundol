@@ -15,7 +15,6 @@ export async function checkForUpdates() {
         center: true,
         title: "bundol - Atualização Disponível",
         focus: true,
-        alwaysOnTop: true,
       });
 
       w.listen("tauri://error", console.log);

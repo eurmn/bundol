@@ -2,7 +2,7 @@ import { getVersion } from "@tauri-apps/api/app";
 import { listen } from "@tauri-apps/api/event";
 import { relaunch } from "@tauri-apps/api/process";
 import { checkUpdate, installUpdate } from "@tauri-apps/api/updater";
-import { appWindow } from "@tauri-apps/api/window";
+import { UserAttentionType, appWindow } from "@tauri-apps/api/window";
 import { Show, createSignal } from "solid-js";
 
 export function Updater() {
@@ -12,6 +12,7 @@ export function Updater() {
   const [updating, setUpdating] = createSignal(false);
 
   getVersion().then((v) => setCurrentVersion(v));
+  appWindow.requestUserAttention(UserAttentionType.Critical);
 
   async function update() {
     setUpdating(true);

@@ -8,7 +8,7 @@
   },
   "package": {
     "productName": "bundol",
-    "version": "0.0.2"
+    "version": "0.0.3"
   },
   "tauri": {
     "updater": {
@@ -19,7 +19,8 @@
       },
       "endpoints": [
         "https://gist.githubusercontent.com/eurmn/0fa827e6892a79ae305921ae947f8764/raw/latest.json"
-      ]
+      ],
+      "dialog": false
     },
     "allowlist": {
       "all": false,
@@ -40,7 +41,6 @@
         "requestUserAttention": true,
         "create": true,
         "center": true,
-        "setFocus": true,
         "setAlwaysOnTop": true,
         "setClosable": true
       }

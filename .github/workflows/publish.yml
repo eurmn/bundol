@@ -56,7 +56,7 @@ jobs:
           with open('latest.json', 'w') as f:
             json.dump({
               "version": version,
-              "pub_date": date,
+              "pub_date": f"{date}Z",
               "platforms": {
                 "windows-x86_64": {
                   "signature": signature,
