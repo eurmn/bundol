@@ -38,6 +38,7 @@ jobs:
           tagName: __VERSION__
           releaseName: "bundol v__VERSION__"
           prerelease: false
+          includeUpdaterJson: false
       - name: Updater JSON Generator
         shell: python
         run: |

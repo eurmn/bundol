@@ -30,14 +30,6 @@ function App() {
 
   getVersion().then(setVersion);
 
-  /* fetch(
-    "https://raw.communitydragon.org/latest/plugins/rcp-be-lol-game-data/global/default/v1/champion-summary.json"
-  ).then((d) => {
-    d.json().then((j) => {
-      setAllChampions(j.slice(1).map((c: any) => c.id));
-    });
-  }); */
-
   invoke<boolean>("is_connected_to_lcu").then(async (r) => {
     setOnline(r);
 
@@ -92,8 +84,8 @@ function App() {
       console.log(parsed);
 
       if (
-        parsed[2].uri === "/lol-champ-select-legacy/v1/session" &&
-        parsed[2].eventType !== "Delete"
+        parsed[2].uri === "/lol-champ-select/v1/session" &&
+        parsed[2].eventType === "Create"
       ) {
         setIsOnChampSelect(true);
         return;
@@ -208,8 +200,8 @@ function App() {
                           }
                         : undefined
                     }
-                    class="bg-white/1 h-53 min-w-38 relative flex flex-col
-                      items-center rounded-lg border-2 border-indigo-8 border-solid"
+                    class="bg-white/1 h-53 min-w-38 relative flex flex-col hover:(shadow-[0_0_2em_0.2em_rgba(79,70,229,0.3)])
+                      items-center rounded-lg border-2 border-indigo-8 border-solid transition-250 cursor-default"
                   >
                     <div class="h-full flex flex-col justify-center items-center gap-6">
                       <img
