@@ -11,16 +11,16 @@ export function Updater() {
   const [currentVersion, setCurrentVersion] = createSignal<string>();
   const [updating, setUpdating] = createSignal(false);
 
+  checkUpdate().then(({ manifest }) => {
+    if (manifest?.version) setNewVersion(manifest?.version);
+  });
+
   getVersion().then((v) => setCurrentVersion(v));
   appWindow.requestUserAttention(UserAttentionType.Critical);
 
   async function update() {
     setUpdating(true);
 
-    const { manifest } = await checkUpdate();
-    if (manifest?.version) setNewVersion(manifest?.version);
-
-    console.log("updating...");
     let unlisten = await listen(
       "tauri://update-download-progress",
       (event: any) => {
@@ -29,7 +29,6 @@ export function Updater() {
             (event.payload.chunkLength * 100) / event.payload.contentLength
           )
         );
-        console.log(progress);
       }
     );
 
