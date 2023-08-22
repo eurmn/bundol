@@ -2,7 +2,7 @@ name: "publish"
 on:
   push:
     branches:
-      - other
+      - main
 
 jobs:
   publish-tauri:
@@ -35,36 +35,27 @@ jobs:
           TAURI_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tagName: v__VERSION__
+          tagName: __VERSION__
           releaseName: "bundol v__VERSION__"
           prerelease: false
           includeUpdaterJson: true
           updaterJsonPreferNsis: true
-      - name: debug-print
+      - name: Updater JSON Generator
         run: |
-          echo "tauri-action outputs:"
-          echo "  ${{ steps.tauri-action.outputs.releaseId }}"
-          echo "  ${{ steps.tauri-action.outputs.releaseHtmlUrl }}"
-          echo "  ${{ steps.tauri-action.outputs.releaseUploadUrl }}"
-          echo "  ${{ steps.tauri-action.outputs.artifactPaths }}"
-      - name: Create Updater JSON
-        run: |
-          echo $PWD
-          Get-ChildItem -Force -Recurse -ErrorAction SilentlyContinue
-          $signature = Get-Content -Raw src-tauri/target/release/bundle/nsis/bundol_${{ steps.tauri-action.outputs.releaseId }}_x64-setup.nsis.zip.sig
           echo "{
-            "version": "${{ steps.tauri-action.outputs.releaseId }}",
-            "platforms": {
-                "windows-x86_64": {
-                    "signature": "$signature",
-                    "url": "https://gist.github.com/eurmn/0fa827e6892a79ae305921ae947f8764"
-                }
+            \"version\": \"${{ steps.tauri-action.outputs.releaseId }}\",
+            \"pub_date\": \"$(date -u +"%Y-%m-%dT%H:%M:%SZ")\",
+            \"platforms\": {
+              \"windows-x86_64\": {
+                \"signature\": \"$(cat src-tauri/target/release/bundle/nsis/bundol_${{ steps.tauri-action.outputs.releaseId }}_x64-setup.nsis.zip.sig)\",
+                \"url\": \"https://github.com/eurmn/bundol/releases/download/${{ steps.tauri-action.outputs.releaseId }}/bundol_${{ steps.tauri-action.outputs.releaseId }}_x64-setup.nsis.zip\"
+              }
             }
-          }" > build/updater.json
+          }" > latest.json
       - name: GIST Updater
         uses: exuanbo/actions-deploy-gist@v1
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          gist_id: from_gist_url
-          file_path: build/book.pdf
-          file_type: binary
+          token: ${{ secrets.GIST_TOKEN }}
+          gist_id: 0fa827e6892a79ae305921ae947f8764
+          file_path: latest.json
+          file_type: json
