@@ -25,9 +25,10 @@ export function Updater() {
       "tauri://update-download-progress",
       (event: any) => {
         setProgress(
-          Math.floor(
-            (event.payload.chunkLength * 100) / event.payload.contentLength
-          )
+          progress() +
+            Math.floor(
+              (event.payload.chunkLength * 100) / event.payload.contentLength
+            )
         );
       }
     );

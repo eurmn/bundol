@@ -13,8 +13,7 @@ interface ISummonerData {
 }
 
 function App() {
-  checkForUpdates();
-
+  setInterval(checkForUpdates, 1000 * 60 * 5);
   let listeners: Promise<UnlistenFn>[] = [];
 
   onCleanup(() => {
@@ -30,24 +29,21 @@ function App() {
 
   getVersion().then(setVersion);
 
+  listen("lobby-members", async (e) => {
+    console.log("lobby-members", e.payload);
+
+    setSummoners(
+      JSON.parse(e.payload as any).map(
+        ({ summonerName, summonerIconId }: ISummonerData) => ({
+          summonerName,
+          summonerIconId,
+        })
+      )
+    );
+  });
+
   invoke<boolean>("is_connected_to_lcu").then(async (r) => {
     setOnline(r);
-
-    if (r) {
-      setCurrentSummoner(await invoke<string>("lcu_summoner_name"));
-
-      let lobby = await invoke<string>("get_current_lobby");
-      if (!lobby) return;
-
-      setSummoners(
-        JSON.parse(lobby).map(
-          ({ summonerName, summonerIconId }: ISummonerData) => ({
-            summonerName,
-            summonerIconId,
-          })
-        )
-      );
-    }
   });
 
   listeners.push(
@@ -72,7 +68,7 @@ function App() {
   );
 
   listeners.push(
-    appWindow.listen<string>("lcu_summoner_name", (e) => {
+    appWindow.listen<string>("lcu-summoner-name", (e) => {
       setCurrentSummoner(e.payload);
     })
   );
@@ -227,7 +223,9 @@ function App() {
       )}
     </For> */}
       </div>
-      <div class="absolute bottom-1 right-2 text-xs text-truegray-5">bundol v{version()}</div>
+      <div class="absolute bottom-1 right-2 text-xs text-truegray-5">
+        bundol v{version()}
+      </div>
     </div>
   );
 }

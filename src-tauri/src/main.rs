@@ -49,37 +49,6 @@ fn lcu_summoner_name() -> String {
 }
 
 #[tauri::command]
-fn get_current_lobby() -> Option<String> {
-    let client = reqwest::blocking::Client::builder()
-        .danger_accept_invalid_certs(true)
-        .build()
-        .unwrap();
-
-    let port = LCU_PORT.load(std::sync::atomic::Ordering::Relaxed);
-    let enc = ENCODED_PASSWORD.lock().unwrap().clone();
-
-    let res = client
-        .get(format!("https://127.0.0.1:{}{}", port, "/lol-lobby/v2/lobby").as_str())
-        .header("Authorization", format!("Basic {}", enc).as_str())
-        .send();
-
-    if res.is_ok() {
-        let res = res.unwrap();
-
-        if res.status().is_success() {
-            let res = res.json::<Value>().unwrap();
-            let members = res.get("members").unwrap();
-
-            return Some(members.to_string());
-        } else {
-            return None;
-        }
-    } else {
-        return None;
-    }
-}
-
-#[tauri::command]
 fn create_lobby() {
     let client = reqwest::blocking::Client::builder()
         .danger_accept_invalid_certs(true)
@@ -309,7 +278,7 @@ fn start_league_watcher(port: u32, password: &str, window: &Window) {
                 SUMMONER_ID.lock().unwrap().push_str(&summoner_id);
     
                 window
-                    .emit("lcu_summoner_name", Some(summoner_name))
+                    .emit("lcu-summoner-name", Some(summoner_name))
                     .unwrap();
             }
 
@@ -318,11 +287,31 @@ fn start_league_watcher(port: u32, password: &str, window: &Window) {
         }
     };
 
+    socket.send(tungstenite::Message::Text("[2, \"bundolrequest\", \"GET /lol-lobby/v2/lobby\"]".to_string())).unwrap();
+
+    loop {
+        let read = socket.read();
+        let msg = read.unwrap();
+
+        let desserialized =
+            serde_json::from_str::<Vec<Value>>(&msg.to_string()).unwrap();
+
+        if desserialized.index(1).as_str().unwrap() == "bundolrequest" {
+            if desserialized.index(0).as_u64().unwrap() == 4 {
+                info!("FAILED TO GET CURRENT LOBBY: {}", desserialized.index(3).to_string());
+            } else {   
+                let members = desserialized.index(2).get("members").unwrap().to_string();
+                window.emit("lobby-members", Some(members)).unwrap();
+            }
+
+            break;
+        }
+    }
+
     let sub_events = vec![
         "OnJsonApiEvent_lol-lobby_v2_lobby",
         "OnJsonApiEvent_lol-summoner_v1_current-summoner",
         "OnJsonApiEvent_lol-champ-select_v1_session",
-
     ];
 
     for event in sub_events {
@@ -798,7 +787,6 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             is_connected_to_lcu,
             lcu_summoner_name,
-            get_current_lobby,
             get_pickable_champions,
             ready,
             create_lobby
