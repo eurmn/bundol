@@ -2,8 +2,20 @@
 import { render } from "solid-js/web";
 
 import "./styles.css";
-import App from "./App";
+import App from "./routes/App";
 import "virtual:uno.css";
 import "@fontsource-variable/rubik";
+import { Router, Route, Routes } from "@solidjs/router";
+import { Updater } from "./routes/Updater";
 
-render(() => <App />, document.getElementById("root") as HTMLElement);
+render(
+  () => (
+    <Router>
+      <Routes>
+        <Route path="/" component={App} />
+        <Route path="/updater" component={Updater} />
+      </Routes>
+    </Router>
+  ),
+  document.getElementById("root") as HTMLElement
+);

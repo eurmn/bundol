@@ -91,7 +91,7 @@ fn get_pickable_champions() -> Option<String> {
         .get(
             format!(
                 "https://127.0.0.1:{}{}",
-                port, "/lol-champ-select-legacy/v1/pickable-champion-ids"
+                port, "/lol-champ-select/v1/pickable-champion-ids"
             )
             .as_str(),
         )
@@ -262,7 +262,7 @@ fn start_league_watcher(port: u32, password: &str, window: &Window) {
     let sub_events = vec![
         "OnJsonApiEvent_lol-lobby_v2_lobby",
         "OnJsonApiEvent_lol-summoner_v1_current-summoner",
-        "OnJsonApiEvent_lol-champ-select-legacy_v1_session",
+        "OnJsonApiEvent_lol-champ-select_v1_session",
         "OnJsonApiEvent_lol-champ-select_v1_session"
     ];
 
@@ -294,7 +294,7 @@ fn start_league_watcher(port: u32, password: &str, window: &Window) {
                 }
 
                 if desserialized.index(2).get("uri").unwrap().as_str().unwrap()
-                    == "/lol-champ-select-legacy/v1/session"
+                    == "/lol-champ-select/v1/session"
                     && desserialized
                         .index(2)
                         .get("eventType")
@@ -368,7 +368,7 @@ fn start_league_watcher(port: u32, password: &str, window: &Window) {
 
                     socket
                         .send(tungstenite::Message::Text(
-                            format!("[2, \"bundolrequest\", \"PATCH /lol-champ-select-legacy/v1/session/my-selection\", {{ \"spell1Id\": {}, \"spell2Id\": {} }}]",
+                            format!("[2, \"bundolrequest\", \"PATCH /lol-champ-select/v1/session/my-selection\", {{ \"spell1Id\": {}, \"spell2Id\": {} }}]",
                             
                             random_spells[0].to_string(),
                             random_spells[1].to_string()
@@ -407,7 +407,6 @@ fn start_league_watcher(port: u32, password: &str, window: &Window) {
                                 serde_json::from_str::<Vec<Value>>(&msg.to_string()).unwrap();
 
                             if desserialized.index(1).as_str().unwrap() == "bundolrequest" {
-                                println!("{:?}", desserialized);
                                 break desserialized.index(2).clone();
                             }
                         };
@@ -542,7 +541,7 @@ fn start_league_watcher(port: u32, password: &str, window: &Window) {
                     'champion_loop: loop {
                         socket
                             .send(tungstenite::Message::Text(format!(
-                                "[2, \"bundolrequest\", \"GET /lol-champ-select-legacy/v1/pickable-champion-ids\"]"
+                                "[2, \"bundolrequest\", \"GET /lol-champ-select/v1/pickable-champion-ids\"]"
                             )))
                             .unwrap();
 
@@ -572,7 +571,7 @@ fn start_league_watcher(port: u32, password: &str, window: &Window) {
 
                         socket
                             .send(tungstenite::Message::Text(
-                                format!("[2, \"bundolrequest\", \"PATCH /lol-champ-select-legacy/v1/session/actions/1\", {{ \"championId\": {}, \"completed\": true }}]",
+                                format!("[2, \"bundolrequest\", \"PATCH /lol-champ-select/v1/session/actions/1\", {{ \"championId\": {}, \"completed\": true }}]",
                                 
                                 random_champ.to_string()
                             )

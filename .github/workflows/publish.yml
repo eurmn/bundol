@@ -38,8 +38,6 @@ jobs:
           tagName: __VERSION__
           releaseName: "bundol v__VERSION__"
           prerelease: false
-          includeUpdaterJson: true
-          updaterJsonPreferNsis: true
       - name: Updater JSON Generator
         shell: python
         run: |
@@ -62,7 +60,7 @@ jobs:
               "platforms": {
                 "windows-x86_64": {
                   "signature": signature,
-                  "url": "https://github.com/eurmn/bundol/releases/download/{version}/bundol_{version}_x64-setup.nsis.zip"
+                  "url": f"https://github.com/eurmn/bundol/releases/download/{version}/bundol_{version}_x64-setup.nsis.zip"
                 }
               }
             }, f
