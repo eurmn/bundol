@@ -41,17 +41,31 @@ jobs:
           includeUpdaterJson: true
           updaterJsonPreferNsis: true
       - name: Updater JSON Generator
+        shell: python
         run: |
-          echo "{
-            \"version\": \"${{ steps.tauri-action.outputs.releaseId }}\",
-            \"pub_date\": \"$(date -u +"%Y-%m-%dT%H:%M:%SZ")\",
-            \"platforms\": {
-              \"windows-x86_64\": {
-                \"signature\": \"$(cat src-tauri/target/release/bundle/nsis/bundol_${{ steps.tauri-action.outputs.releaseId }}_x64-setup.nsis.zip.sig)\",
-                \"url\": \"https://github.com/eurmn/bundol/releases/download/${{ steps.tauri-action.outputs.releaseId }}/bundol_${{ steps.tauri-action.outputs.releaseId }}_x64-setup.nsis.zip\"
+          import json
+          from datetime import datetime
+
+          with open('src-tauri/tauri.conf.json', 'r') as f:
+            data = json.load(f)
+          version = data['package']['version']
+
+          with open(f'src-tauri/target/release/bundle/nsis/bundol_{version}_x64-setup.nsis.zip.sig') as f:
+            signature = f.read()
+
+          date = datetime.now().isoformat()
+
+          with open('latest.json', 'w') as f:
+            json.dump({
+              "version": version,
+              "pub_date": date,
+              "platforms": {
+                "windows-x86_64": {
+                  "signature": signature,
+                  "url": "https://github.com/eurmn/bundol/releases/download/{version}/bundol_{version}_x64-setup.nsis.zip"
+                }
               }
-            }
-          }" > latest.json
+            }, f
       - name: GIST Updater
         uses: exuanbo/actions-deploy-gist@v1
         with:
