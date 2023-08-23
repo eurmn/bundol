@@ -80,7 +80,8 @@ export function Updater() {
           </div>
         </div>
       </Show>
-      <div class="transition-100 absolute bottom-0 left-0 h-1 bg-gradient-to-r from-green via-green-7 to-green w-full"></div>
+      <div class="transition-100 absolute bottom-0 left-0 h-1 bg-gradient-to-r
+        from-green via-green-7to-green w-full"></div>
       <div
         style={`width: ${100 - progress()}%`}
         class="z-10 h-1 bg-dark-950 absolute bottom-0 right-0 transition-30 transition-all"

@@ -2,7 +2,7 @@ import { invoke } from "@tauri-apps/api";
 import { UnlistenFn, listen } from "@tauri-apps/api/event";
 import { appWindow } from "@tauri-apps/api/window";
 import "highlight.js/styles/atom-one-dark-reasonable.css";
-import { For, Show, createSignal, onCleanup } from "solid-js";
+import { For, Show, createEffect, createSignal, onCleanup } from "solid-js";
 import { TitleBar } from "../components/TitleBar";
 import { getVersion } from "@tauri-apps/api/app";
 import { checkForUpdates } from "../updater/updater";
@@ -10,6 +10,22 @@ import { checkForUpdates } from "../updater/updater";
 interface ISummonerData {
   summonerName: string;
   summonerIconId: number;
+}
+
+const StatusDescriptions = {
+  away: "Ausente",
+  chat: "Online",
+  mobile: "Mobile",
+  offline: "Invisível",
+  disconnected: "Offline",
+};
+
+const StatusColors = {
+  away: "bg-red",
+  chat: "bg-green",
+  mobile: "bg-blue",
+  offline: "bg-truegray",
+  disconnected: "bg-truegray",
 }
 
 function App() {
@@ -23,7 +39,9 @@ function App() {
 
   const [version, setVersion] = createSignal<string>("");
   const [summoners, setSummoners] = createSignal<ISummonerData[]>([]);
-  const [online, setOnline] = createSignal<boolean>();
+  const [status, setStatus] = createSignal<
+    "away" | "chat" | "mobile" | "offline" | "disconnected"
+  >("disconnected");
   const [currentSummoner, setCurrentSummoner] = createSignal<string>();
   const [isOnChampSelect, setIsOnChampSelect] = createSignal<boolean>(false);
   const [isReady, setIsReady] = createSignal<boolean>(true);
@@ -44,7 +62,7 @@ function App() {
   });
 
   invoke<boolean>("is_connected_to_lcu").then(async (r) => {
-    setOnline(r);
+    setStatus(r ? "chat" : "disconnected");
   });
 
   listeners.push(
@@ -56,14 +74,14 @@ function App() {
   listeners.push(
     appWindow.listen("lcu-connected", () => {
       console.log("LCU connected");
-      setOnline(true);
+      setStatus("chat");
     })
   );
 
   listeners.push(
     appWindow.listen("lcu-disconnected", () => {
       console.log("LCU disconnected");
-      setOnline(false);
+      setStatus("disconnected");
       setCurrentSummoner(undefined);
     })
   );
@@ -79,6 +97,11 @@ function App() {
       let parsed = JSON.parse(e.payload as string);
 
       console.log(parsed);
+
+      if (parsed[2].uri === "/lol-chat/v1/me") {
+        setStatus(parsed[2].data.availability);
+        return;
+      }
 
       if (
         parsed[2].uri === "/lol-champ-select/v1/session" &&
@@ -111,6 +134,10 @@ function App() {
     })
   );
 
+  createEffect(() => {
+    console.log(status(), StatusDescriptions[status()]);
+  }, [status]);
+
   return (
     <div class="w-full h-full grid grid-rows-[auto_auto_1fr] bg-dark-9 text-truegray-1">
       <TitleBar />
@@ -127,18 +154,42 @@ function App() {
           <div class="flex items-center gap-2 font-semibold w-full mb-3 text-3xl">
             <div class="i-mdi-users" />
             <span>INVOCADORES:</span>
-            <div class="h-full flex px-6 text-sm gap-2 items-center ml-auto my-auto font-semibold text-gray-3">
+            <div
+              class={`${
+                status() !== "disconnected" ? "group " : ""
+              }h-full flex px-6 text-sm gap-2 items-center ml-auto my-auto
+              font-semibold text-gray-3 cursor-pointer relative`}
+            >
+              <span class="relative">
+                <span>
+                  {StatusDescriptions[status()]}
+                  {currentSummoner() ? ` (${currentSummoner()})` : ""}
+                </span>
+                <div
+                  class="absolute bottom-0 translate-y-full border-1 hover:children:text-white text-gray-4
+                children:(py-0.5 px-1 transition-200 text-right w-full)
+                font-normal left-1/2 -translate-x-1/2 invisible group-hover:visible w-full"
+                >
+                  <For each={["chat", "offline", "mobile", "away"]}>
+                    {(s) => (
+
+                      <div
+                        class="my-auto"
+                        onclick={() => invoke("set_user_status", { status: s })}
+                      >
+                        {StatusDescriptions[s]}
+                      </div>
+                    )}
+                  </For>
+                </div>
+              </span>
               <span
-                class={`h-2 w-2 ${
-                  online() ? "bg-green" : "bg-truegray-4"
-                } rounded-full`}
-              ></span>
-              <span>
-                {online()
-                  ? `Online${
-                      currentSummoner() ? " (" + currentSummoner() + ")" : ""
-                    }`
-                  : "Offline"}
+                class={`h-2 w-2 ${StatusColors[status()]} rounded-full relative group-hover:bg-transparent`}
+              >
+                <div
+                  class="text-xl absolute top-1/2 left-1/2 i-mdi-chevron-down
+                  -translate-1/2 opacity-0 group-hover:opacity-100"
+                ></div>
               </span>
               <div class="border-r-truegray-5 border-1 border-r-solid w-1 h-4 my-auto" />
               <div class="font-normal cursor-pointer text-truegray-4 select-none">

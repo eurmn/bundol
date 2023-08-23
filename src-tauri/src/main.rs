@@ -7,7 +7,6 @@ use log::{info, LevelFilter};
 use rand;
 use reqwest::Url;
 use serde_json::{json, Value};
-use tauri_plugin_log::{LogTarget, TimezoneStrategy};
 use std::fs::File;
 use std::io::prelude::*;
 use std::net::TcpStream;
@@ -19,8 +18,10 @@ use tauri::{
     CustomMenuItem, Manager, SystemTray, SystemTrayEvent, SystemTrayMenu, SystemTrayMenuItem,
     Window,
 };
+use tauri_plugin_log::{LogTarget, TimezoneStrategy};
 use tungstenite::http::Request;
 use tungstenite::protocol::WebSocketConfig;
+use tungstenite::stream::MaybeTlsStream;
 
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
 struct LcuSubscribePayload {
@@ -70,6 +71,38 @@ fn create_lobby() {
 }
 
 #[tauri::command]
+fn set_user_status(status: &str) {
+    let client = reqwest::blocking::Client::builder()
+        .danger_accept_invalid_certs(true)
+        .build()
+        .unwrap();
+
+    let port = LCU_PORT.load(std::sync::atomic::Ordering::Relaxed);
+    let enc = ENCODED_PASSWORD.lock().unwrap().clone();
+
+    let res = client
+        .get(format!("https://127.0.0.1:{}{}", port, "/lol-chat/v1/me").as_str())
+        .header("Authorization", format!("Basic {}", enc).as_str())
+        .send();
+
+    if res.is_ok() {
+        let res = res.unwrap();
+
+        if res.status().is_success() {
+            let mut res = res.json::<Value>().unwrap();
+
+            res["availability"] = Value::String(status.to_string());
+
+            let _ = client
+                .put(format!("https://127.0.0.1:{}{}", port, "/lol-chat/v1/me").as_str())
+                .header("Authorization", format!("Basic {}", enc).as_str())
+                .body(res.to_string())
+                .send();
+        }
+    }
+}
+
+#[tauri::command]
 fn get_pickable_champions() -> Option<String> {
     let client = reqwest::blocking::Client::builder()
         .danger_accept_invalid_certs(true)
@@ -108,6 +141,422 @@ fn get_pickable_champions() -> Option<String> {
 #[tauri::command]
 fn ready(ready: bool) {
     IS_USER_READY.store(ready, std::sync::atomic::Ordering::Relaxed);
+}
+
+fn process_events(
+    socket: &mut tungstenite::WebSocket<MaybeTlsStream<TcpStream>>,
+    window: &Window,
+    spell_ids: &Vec<i64>,
+) -> bool {
+    let read = socket.read();
+
+    if read.is_ok() {
+        let msg = read.unwrap();
+
+        if IS_USER_READY.load(std::sync::atomic::Ordering::Relaxed) {
+            let desserialized = serde_json::from_str::<Vec<Value>>(&msg.to_string());
+
+            if desserialized.is_err() {
+                return false;
+            }
+
+            let desserialized = desserialized.unwrap();
+
+            if desserialized.index(0).as_u64().unwrap() != 8 {
+                return false;
+            }
+
+            info!("trying to find");
+            if desserialized.index(2).get("uri").unwrap().as_str().unwrap() ==
+                "/lol-champ-select/v1/session" &&
+                    desserialized
+                        .index(2)
+                        .get("eventType")
+                        .unwrap()
+                        .as_str()
+                        .unwrap()
+                        == "Create"
+                    {
+                        info!("IN CHAMP SELECT");
+
+                        // [GET MY ACTION ID]
+                        let action_id = {
+                            let data = desserialized.index(2).get("data").unwrap();
+                            let my_cell_id = data.get("localPlayerCellId").unwrap().as_u64().unwrap();
+                            data.get("actions").unwrap()[0]
+                                .as_array()
+                                .unwrap()
+                                .iter()
+                                .filter(|a| a.get("actorCellId").unwrap().as_u64().unwrap() == my_cell_id)
+                                .next()
+                                .unwrap()
+                                .get("id")
+                                .unwrap()
+                                .as_u64()
+                                .unwrap()
+                        };
+        
+                        // [SELECT RANDOM CHAMPION]
+                        'champion_loop: loop {
+                            info!("champion loop");
+        
+                            socket
+                                .send(tungstenite::Message::Text(format!(
+                                    "[2, \"bundolrequest\", \"GET /lol-champ-select/v1/pickable-champion-ids\"]"
+                                )))
+                                .unwrap();
+        
+                            let pickable_champions = loop {
+                                let read = socket.read();
+                                let msg = read.unwrap();
+        
+                                let desserialized =
+                                    serde_json::from_str::<Vec<Value>>(&msg.to_string()).unwrap();
+        
+                                if desserialized.index(1).as_str().unwrap() == "bundolrequest" {
+                                    if desserialized.index(0).as_u64().unwrap() == 3 {
+                                        break desserialized.index(2).clone().as_array().unwrap().clone();
+                                    }
+                                } else {
+                                    let broke = process_events(socket, window, spell_ids);
+                                    if broke {
+                                        return broke;
+                                    }
+                                }
+                            };
+        
+                            let random_champ = pickable_champions
+                                [rand::random::<usize>() % pickable_champions.len()]
+                            .as_u64()
+                            .unwrap();
+        
+                            // pick champion
+                            socket
+                                .send(tungstenite::Message::Text(
+                                    format!("[2, \"bundolrequest\", \"PATCH /lol-champ-select/v1/session/actions/{}\", {{ \"championId\": {}, \"completed\": true }}]",
+                                    action_id,
+                                    random_champ
+                                )
+                                ))
+                                .unwrap();
+        
+                            loop {
+                                let read = socket.read();
+                                let msg = read.unwrap();
+        
+                                let desserialized =
+                                    serde_json::from_str::<Vec<Value>>(&msg.to_string()).unwrap();
+        
+                                if desserialized.index(1).as_str().unwrap() == "bundolrequest" {
+                                    if desserialized.index(0).as_u64().unwrap() == 4 {
+                                        println!(
+                                            "FAILED TO PICK CHAMPION: {}",
+                                            desserialized.index(3).to_string()
+                                        );
+                                        break 'champion_loop;
+                                    }
+        
+                                    break 'champion_loop;
+                                } else {
+                                    let broke = process_events(socket, window, spell_ids);
+                                    if broke {
+                                        return broke;
+                                    }
+                                }
+                            }
+                        }
+        
+                        // [SELECT RANDOM SPELLS]
+                        let available_spells = {
+                            socket
+                                .send(tungstenite::Message::Text(format!(
+                                    "[2, \"bundolrequest\", \"GET /lol-collections/v1/inventories/{}/spells\"]",
+                                    SUMMONER_ID.lock().unwrap().clone()
+                                )))
+                                .unwrap();
+        
+                            let spells = loop {
+                                let read = socket.read();
+                                let msg = read.unwrap();
+        
+                                let desserialized =
+                                    serde_json::from_str::<Vec<Value>>(&msg.to_string()).unwrap();
+        
+                                if desserialized.index(1).as_str().unwrap() == "bundolrequest" {
+                                    if desserialized.index(0).as_u64().unwrap() == 4 {
+                                        info!(
+                                            "FAILED TO GET SPELLS: {}",
+                                            desserialized.index(3).to_string()
+                                        );
+                                    }
+        
+                                    break desserialized
+                                        .index(2)
+                                        .get("spells")
+                                        .unwrap()
+                                        .as_array()
+                                        .unwrap()
+                                        .clone();
+                                } else {
+                                    let broke = process_events(socket, window, spell_ids);
+                                    if broke {
+                                        return broke;
+                                    }
+                                }
+                            };
+        
+                            let mut available_spells = Vec::new();
+        
+                            for spell in spells {
+                                let spell_id = spell.as_i64().unwrap();
+        
+                                if spell_ids.contains(&spell_id) {
+                                    available_spells.push(spell_id);
+                                }
+                            }
+        
+                            spell_ids
+                                .iter()
+                                .filter(|s| available_spells.contains(s))
+                                .collect::<Vec<&i64>>()
+                        };
+        
+                        let random_spells = {
+                            let mut random_spells = Vec::new();
+        
+                            loop {
+                                let spell =
+                                    available_spells[rand::random::<usize>() % available_spells.len()];
+        
+                                if !random_spells.contains(&spell) {
+                                    random_spells.push(spell);
+                                }
+        
+                                if random_spells.len() == 2 {
+                                    break random_spells;
+                                }
+                            }
+                        };
+        
+                        socket
+                            .send(tungstenite::Message::Text(
+                                format!("[2, \"bundolrequest\", \"PATCH /lol-champ-select/v1/session/my-selection\", {{ \"spell1Id\": {}, \"spell2Id\": {} }}]",
+                                random_spells[0].to_string(),
+                                random_spells[1].to_string()
+                            )
+                            ))
+                            .unwrap();
+        
+                        loop {
+                            let read = socket.read();
+                            let msg = read.unwrap();
+        
+                            let desserialized =
+                                serde_json::from_str::<Vec<Value>>(&msg.to_string()).unwrap();
+        
+                            if desserialized.index(1).as_str().unwrap() == "bundolrequest" {
+                                if desserialized.index(0).as_u64().unwrap() == 4 {
+                                    info!(
+                                        "FAILED TO PATCH SUMMONER SPELLS: {}",
+                                        desserialized.index(3).to_string()
+                                    );
+                                }
+        
+                                break;
+                            } else {
+                                let broke = process_events(socket, window, spell_ids);
+                                if broke {
+                                    return broke;
+                                }
+                            }
+                        }
+        
+                        // [SELECT RANDOM RUNES]
+                        socket
+                            .send(tungstenite::Message::Text(
+                                format!("[2, \"bundolrequest\", \"GET /lol-perks/v1/styles\"]").to_string(),
+                            ))
+                            .unwrap();
+        
+                        let runes = {
+                            let mut selected_perks: Vec<i64> = vec![];
+        
+                            let styles = loop {
+                                let read = socket.read();
+                                let msg = read.unwrap();
+        
+                                let desserialized =
+                                    serde_json::from_str::<Vec<Value>>(&msg.to_string()).unwrap();
+        
+                                if desserialized.index(1).as_str().unwrap() == "bundolrequest" {
+                                    if desserialized.index(0).as_u64().unwrap() == 4 {
+                                        info!(
+                                            "FAILED TO GET RUNES: {}",
+                                            desserialized.index(3).to_string()
+                                        );
+                                    }
+        
+                                    break desserialized.index(2).clone();
+                                } else {
+                                    let broke = process_events(socket, window, spell_ids);
+                                    if broke {
+                                        return broke;
+                                    }
+                                }
+                            };
+        
+                            // select random index of styles (for the main rune)
+                            let random_style_index =
+                                rand::random::<usize>() % styles.as_array().unwrap().len();
+                            let primary_style = styles.index(random_style_index);
+        
+                            // go through each slot (except the last 3) and select a random perk and push it to selected_perks
+                            let slots = primary_style.get("slots").unwrap().as_array().unwrap();
+        
+                            for slot in slots.iter().take(slots.len() - 3) {
+                                let perks = slot.get("perks").unwrap().as_array().unwrap();
+        
+                                let random_perk_index = rand::random::<usize>() % perks.len();
+                                let perk_id = perks.index(random_perk_index);
+        
+                                selected_perks.push(perk_id.as_i64().unwrap());
+                            }
+        
+                            let allowed_secondary_styles = primary_style
+                                .get("allowedSubStyles")
+                                .unwrap()
+                                .as_array()
+                                .unwrap();
+                            let random_secondary_style_index: usize =
+                                rand::random::<usize>() % allowed_secondary_styles.len();
+                            let secondary_style_id =
+                                allowed_secondary_styles.index(random_secondary_style_index);
+        
+                            let secondary_style = styles
+                                .as_array()
+                                .unwrap()
+                                .iter()
+                                .find(|s| {
+                                    s.get("id").unwrap().as_i64().unwrap()
+                                        == secondary_style_id.as_i64().unwrap()
+                                })
+                                .unwrap();
+        
+                            // go through each slot that has "type" != "kKeyStone" and select a random perk and push it to selected_perks
+                            // there are 3 slots that have "type" == "kMixedRegularSplashable", however, only two of them will be used
+                            // so one random slot will be ignored
+                            let slots = secondary_style.get("slots").unwrap().as_array().unwrap();
+        
+                            let mut sub_slots_read = 0;
+                            let random_slot_to_ignore = rand::random::<usize>() % 3 + 1;
+        
+                            for slot in slots {
+                                if slot.get("type").unwrap().as_str().unwrap() == "kKeyStone" {
+                                    continue;
+                                }
+        
+                                if slot.get("type").unwrap().as_str().unwrap() == "kMixedRegularSplashable"
+                                {
+                                    sub_slots_read += 1;
+                                    if sub_slots_read == random_slot_to_ignore {
+                                        continue;
+                                    }
+                                }
+        
+                                let perks = slot.get("perks").unwrap().as_array().unwrap();
+        
+                                let random_perk_index = rand::random::<usize>() % perks.len();
+                                let perk_id = perks.index(random_perk_index);
+        
+                                selected_perks.push(perk_id.as_i64().unwrap());
+                            }
+        
+                            info!("Selected perks: {:?}", selected_perks);
+        
+                            // create a new json
+                            let json = json!({
+                                "name": format!("{} & {}", primary_style.get("name").unwrap().as_str().unwrap(), secondary_style.get("name").unwrap().as_str().unwrap()),
+                                "selectedPerkIds": selected_perks,
+                                "current": true,
+                                "primaryStyleId": primary_style.get("id").unwrap().as_i64().unwrap(),
+                                "subStyleId": secondary_style.get("id").unwrap().as_i64().unwrap()
+                            });
+        
+                            json
+                        };
+        
+                        socket
+                            .send(tungstenite::Message::Text(
+                                "[2, \"bundolrequest\", \"DELETE /lol-perks/v1/pages\"]".to_string(),
+                            ))
+                            .unwrap();
+        
+                        loop {
+                            let read = socket.read();
+                            let msg = read.unwrap();
+        
+                            let desserialized =
+                                serde_json::from_str::<Vec<Value>>(&msg.to_string()).unwrap();
+        
+                            if desserialized.index(1).as_str().unwrap() == "bundolrequest" {
+                                if desserialized.index(0).as_u64().unwrap() == 4 {
+                                    info!(
+                                        "FAILED TO DELETE RUNES: {}",
+                                        desserialized.index(3).to_string()
+                                    );
+                                }
+        
+                                break;
+                            } else {
+                                let broke = process_events(socket, window, spell_ids);
+                                if broke {
+                                    return broke;
+                                }
+                            }
+                        }
+        
+                        socket
+                            .send(tungstenite::Message::Text(
+                                format!(
+                                    "[2, \"bundolrequest\", \"POST /lol-perks/v1/pages\", {}]",
+                                    runes.to_string()
+                                )
+                                .to_string(),
+                            ))
+                            .unwrap();
+        
+                        loop {
+                            let read = socket.read();
+                            let msg = read.unwrap();
+        
+                            let desserialized =
+                                serde_json::from_str::<Vec<Value>>(&msg.to_string()).unwrap();
+        
+                            if desserialized.index(1).as_str().unwrap() == "bundolrequest" {
+                                if desserialized.index(0).as_u64().unwrap() == 4 {
+                                    info!(
+                                        "FAILED TO CHANGE RUNES: {}",
+                                        desserialized.index(3).to_string()
+                                    );
+                                }
+                                break;
+                            } else {
+                                let broke = process_events(socket, window, spell_ids);
+                                if broke {
+                                    return broke;
+                                }
+                            }
+                        }
+                    }
+        }
+
+        window.emit("lcu-message", Some(msg.to_string())).unwrap();
+
+        if msg.is_close() {
+            return true;
+        }
+    };
+    return false;
 }
 
 fn find_league_lockfile() -> String {
@@ -202,14 +651,17 @@ fn start_league_watcher(port: u32, password: &str, window: &Window) {
 
     window.emit("lcu-connected", Option::<()>::None).unwrap();
 
-    socket.send(tungstenite::Message::Text("[2, \"bundolrequest\", \"GET /lol-settings/v2/ready\"]".to_string())).unwrap();
+    socket
+        .send(tungstenite::Message::Text(
+            "[2, \"bundolrequest\", \"GET /lol-settings/v2/ready\"]".to_string(),
+        ))
+        .unwrap();
 
     let ready = loop {
         let read = socket.read();
         let msg = read.unwrap();
 
-        let desserialized =
-            serde_json::from_str::<Vec<Value>>(&msg.to_string()).unwrap();
+        let desserialized = serde_json::from_str::<Vec<Value>>(&msg.to_string()).unwrap();
 
         if desserialized.index(1).as_str().unwrap() == "bundolrequest" {
             if desserialized.index(0).as_u64().unwrap() == 3 {
@@ -218,6 +670,11 @@ fn start_league_watcher(port: u32, password: &str, window: &Window) {
 
             println!("{}", desserialized.index(2).to_string());
             break false;
+        } else {
+            let broke = process_events(&mut socket, window, &spell_ids);
+            if broke {
+                return;
+            }
         }
     };
 
@@ -243,17 +700,20 @@ fn start_league_watcher(port: u32, password: &str, window: &Window) {
                 info!("Ready: {}", msg);
                 break;
             }
-        }       
+        }
     }
 
-    socket.send(tungstenite::Message::Text("[2, \"bundolrequest\", \"GET /lol-summoner/v1/current-summoner\"]".to_string())).unwrap();
+    socket
+        .send(tungstenite::Message::Text(
+            "[2, \"bundolrequest\", \"GET /lol-summoner/v1/current-summoner\"]".to_string(),
+        ))
+        .unwrap();
 
     loop {
         let read = socket.read();
         let msg = read.unwrap();
 
-        let desserialized =
-            serde_json::from_str::<Vec<Value>>(&msg.to_string()).unwrap();
+        let desserialized = serde_json::from_str::<Vec<Value>>(&msg.to_string()).unwrap();
 
         if desserialized.index(1).as_str().unwrap() == "bundolrequest" {
             if desserialized.index(0).as_u64().unwrap() == 3 {
@@ -270,13 +730,13 @@ fn start_league_watcher(port: u32, password: &str, window: &Window) {
                     .unwrap()
                     .to_string()
                     .clone();
-            
+
                 SUMMONER_NAME.lock().unwrap().clear();
                 SUMMONER_NAME.lock().unwrap().push_str(&summoner_name);
-    
+
                 SUMMONER_ID.lock().unwrap().clear();
                 SUMMONER_ID.lock().unwrap().push_str(&summoner_id);
-    
+
                 window
                     .emit("lcu-summoner-name", Some(summoner_name))
                     .unwrap();
@@ -284,27 +744,43 @@ fn start_league_watcher(port: u32, password: &str, window: &Window) {
 
             println!("{}", desserialized.index(2).to_string());
             break;
+        } else {
+            let broke = process_events(&mut socket, window, &spell_ids);
+            if broke {
+                return;
+            }
         }
-    };
+    }
 
-    socket.send(tungstenite::Message::Text("[2, \"bundolrequest\", \"GET /lol-lobby/v2/lobby\"]".to_string())).unwrap();
+    socket
+        .send(tungstenite::Message::Text(
+            "[2, \"bundolrequest\", \"GET /lol-lobby/v2/lobby\"]".to_string(),
+        ))
+        .unwrap();
 
     loop {
         let read = socket.read();
         let msg = read.unwrap();
 
-        let desserialized =
-            serde_json::from_str::<Vec<Value>>(&msg.to_string()).unwrap();
+        let desserialized = serde_json::from_str::<Vec<Value>>(&msg.to_string()).unwrap();
 
         if desserialized.index(1).as_str().unwrap() == "bundolrequest" {
             if desserialized.index(0).as_u64().unwrap() == 4 {
-                info!("FAILED TO GET CURRENT LOBBY: {}", desserialized.index(3).to_string());
-            } else {   
+                info!(
+                    "FAILED TO GET CURRENT LOBBY: {}",
+                    desserialized.index(3).to_string()
+                );
+            } else {
                 let members = desserialized.index(2).get("members").unwrap().to_string();
                 window.emit("lobby-members", Some(members)).unwrap();
             }
 
             break;
+        } else {
+            let broke = process_events(&mut socket, window, &spell_ids);
+            if broke {
+                return;
+            }
         }
     }
 
@@ -312,6 +788,7 @@ fn start_league_watcher(port: u32, password: &str, window: &Window) {
         "OnJsonApiEvent_lol-lobby_v2_lobby",
         "OnJsonApiEvent_lol-summoner_v1_current-summoner",
         "OnJsonApiEvent_lol-champ-select_v1_session",
+        "OnJsonApiEvent_lol-chat_v1_me",
     ];
 
     for event in sub_events {
@@ -323,364 +800,11 @@ fn start_league_watcher(port: u32, password: &str, window: &Window) {
     }
 
     loop {
-        let read = socket.read();
-
-        if read.is_ok() {
-            let msg = read.unwrap();
-
-            if IS_USER_READY.load(std::sync::atomic::Ordering::Relaxed) {
-                let desserialized = serde_json::from_str::<Vec<Value>>(&msg.to_string());
-
-                if desserialized.is_err() {
-                    continue;
-                }
-
-                let desserialized = desserialized.unwrap();
-
-                if desserialized.index(0).as_u64().unwrap() != 8 {
-                    continue;
-                }
-
-                if desserialized.index(2).get("uri").unwrap().as_str().unwrap()
-                    == "/lol-champ-select/v1/session"
-                    && desserialized
-                        .index(2)
-                        .get("eventType")
-                        .unwrap()
-                        .as_str()
-                        .unwrap()
-                        == "Create"
-                {
-                    info!("IN CHAMP SELECT");
-                    
-                    // [GET MY ACTION ID]
-                    let action_id = {
-                        let data = desserialized.index(2).get("data").unwrap();
-                        let my_cell_id = data.get("localPlayerCellId").unwrap().as_u64().unwrap();
-                        data.get("actions").unwrap()[0].as_array().unwrap().iter().filter(|a| a.get("actorCellId").unwrap().as_u64().unwrap() == my_cell_id).next().unwrap().get("id").unwrap().as_u64().unwrap()
-                    };
-
-                    // [SELECT RANDOM CHAMPION]
-                    'champion_loop: loop {
-                        info!("champion loop");
-
-                        socket
-                            .send(tungstenite::Message::Text(format!(
-                                "[2, \"bundolrequest\", \"GET /lol-champ-select/v1/pickable-champion-ids\"]"
-                            )))
-                            .unwrap();
-
-                        let pickable_champions = loop {
-                            let read = socket.read();
-                            let msg = read.unwrap();
-
-                            let desserialized =
-                                serde_json::from_str::<Vec<Value>>(&msg.to_string()).unwrap();
-
-                            if desserialized.index(1).as_str().unwrap() == "bundolrequest" {
-                                if desserialized.index(0).as_u64().unwrap() == 3 {
-                                    break desserialized
-                                        .index(2)
-                                        .clone()
-                                        .as_array()
-                                        .unwrap()
-                                        .clone();
-                                }
-                            }
-                        };
-
-                        let random_champ = pickable_champions
-                            [rand::random::<usize>() % pickable_champions.len()]
-                        .as_u64()
-                        .unwrap();
-
-                        // pick champion
-                        socket
-                            .send(tungstenite::Message::Text(
-                                format!("[2, \"bundolrequest\", \"PATCH /lol-champ-select/v1/session/actions/{}\", {{ \"championId\": {}, \"completed\": true }}]",
-                                action_id,
-                                random_champ
-                            )
-                            ))
-                            .unwrap();
-
-                        loop {
-                            let read = socket.read();
-                            let msg = read.unwrap();
-
-                            let desserialized =
-                            serde_json::from_str::<Vec<Value>>(&msg.to_string()).unwrap();
-
-                            if desserialized.index(1).as_str().unwrap() == "bundolrequest" {
-                                if desserialized.index(0).as_u64().unwrap() == 4 {
-                                    println!("FAILED TO PICK CHAMPION: {}", desserialized.index(3).to_string());
-                                    break 'champion_loop;
-                                }
-                                
-                                break 'champion_loop;
-                            }
-                        }
-                    }
-
-                    // [SELECT RANDOM SPELLS]
-                    let available_spells = {
-                        socket
-                            .send(tungstenite::Message::Text(format!(
-                                "[2, \"bundolrequest\", \"GET /lol-collections/v1/inventories/{}/spells\"]",
-                                
-                                SUMMONER_ID.lock().unwrap().clone()
-                            )))
-                            .unwrap();
-
-                        let spells = loop {
-                            let read = socket.read();
-                            let msg = read.unwrap();
-
-                            let desserialized =
-                                serde_json::from_str::<Vec<Value>>(&msg.to_string()).unwrap();
-
-                            if desserialized.index(1).as_str().unwrap() == "bundolrequest" {
-                                if desserialized.index(0).as_u64().unwrap() == 4 {
-                                    info!("FAILED TO GET SPELLS: {}", desserialized.index(3).to_string());
-                                }
-
-                                break desserialized
-                                    .index(2)
-                                    .get("spells")
-                                    .unwrap()
-                                    .as_array()
-                                    .unwrap()
-                                    .clone();
-                            }
-                        };
-
-                        let mut available_spells = Vec::new();
-
-                        for spell in spells {
-                            let spell_id = spell.as_i64().unwrap();
-
-                            if spell_ids.contains(&spell_id) {
-                                available_spells.push(spell_id);
-                            }
-                        }
-
-                        spell_ids
-                            .iter()
-                            .filter(|s| available_spells.contains(s))
-                            .collect::<Vec<&i64>>()
-                    };
-
-                    let random_spells = {
-                        let mut random_spells = Vec::new();
-
-                        loop {
-                            let spell =
-                                available_spells[rand::random::<usize>() % available_spells.len()];
-
-                            if !random_spells.contains(&spell) {
-                                random_spells.push(spell);
-                            }
-
-                            if random_spells.len() == 2 {
-                                break random_spells;
-                            }
-                        }
-                    };
-
-
-                    socket
-                        .send(tungstenite::Message::Text(
-                            format!("[2, \"bundolrequest\", \"PATCH /lol-champ-select/v1/session/my-selection\", {{ \"spell1Id\": {}, \"spell2Id\": {} }}]",
-                            
-                            random_spells[0].to_string(),
-                            random_spells[1].to_string()
-                        )
-                        ))
-                        .unwrap();
-
-                    loop {
-                        let read = socket.read();
-                        let msg = read.unwrap();
-
-                        let desserialized =
-                            serde_json::from_str::<Vec<Value>>(&msg.to_string()).unwrap();
-
-                        if desserialized.index(1).as_str().unwrap() == "bundolrequest" {
-                            if desserialized.index(0).as_u64().unwrap() == 4 {
-                                info!("FAILED TO PATCH SUMMONER SPELLS: {}", desserialized.index(3).to_string());
-                            }
-
-                            break;
-                        }
-                    }
-
-                    // [SELECT RANDOM RUNES]
-                    socket
-                        .send(tungstenite::Message::Text(
-                            format!("[2, \"bundolrequest\", \"GET /lol-perks/v1/styles\"]").to_string(),
-                        ))
-                        .unwrap();
-
-                    let runes = {
-                        let mut selected_perks: Vec<i64> = vec![];
-
-                        let styles = loop {
-                            let read = socket.read();
-                            let msg = read.unwrap();
-
-                            let desserialized =
-                                serde_json::from_str::<Vec<Value>>(&msg.to_string()).unwrap();
-
-                            if desserialized.index(1).as_str().unwrap() == "bundolrequest" {
-                                if desserialized.index(0).as_u64().unwrap() == 4 {
-                                    info!("FAILED TO GET RUNES: {}", desserialized.index(3).to_string());
-                                }
-
-                                break desserialized.index(2).clone();
-                            }
-                        };
-
-                        // select random index of styles (for the main rune)
-                        let random_style_index =
-                            rand::random::<usize>() % styles.as_array().unwrap().len();
-                        let primary_style = styles.index(random_style_index);
-
-                        // go through each slot (except the last 3) and select a random perk and push it to selected_perks
-                        let slots = primary_style.get("slots").unwrap().as_array().unwrap();
-
-                        for slot in slots.iter().take(slots.len() - 3) {
-                            let perks = slot.get("perks").unwrap().as_array().unwrap();
-
-                            let random_perk_index = rand::random::<usize>() % perks.len();
-                            let perk_id = perks.index(random_perk_index);
-
-                            selected_perks.push(perk_id.as_i64().unwrap());
-                        }
-
-                        let allowed_secondary_styles = primary_style
-                            .get("allowedSubStyles")
-                            .unwrap()
-                            .as_array()
-                            .unwrap();
-                        let random_secondary_style_index: usize =
-                            rand::random::<usize>() % allowed_secondary_styles.len();
-                        let secondary_style_id =
-                            allowed_secondary_styles.index(random_secondary_style_index);
-
-                        let secondary_style = styles
-                            .as_array()
-                            .unwrap()
-                            .iter()
-                            .find(|s| {
-                                s.get("id").unwrap().as_i64().unwrap()
-                                    == secondary_style_id.as_i64().unwrap()
-                            })
-                            .unwrap();
-
-                        // go through each slot that has "type" != "kKeyStone" and select a random perk and push it to selected_perks
-                        // there are 3 slots that have "type" == "kMixedRegularSplashable", however, only two of them will be used
-                        // so one random slot will be ignored
-                        let slots = secondary_style.get("slots").unwrap().as_array().unwrap();
-
-                        let mut sub_slots_read = 0;
-                        let random_slot_to_ignore = rand::random::<usize>() % 3 + 1;
-
-                        for slot in slots {
-                            if slot.get("type").unwrap().as_str().unwrap() == "kKeyStone" {
-                                continue;
-                            }
-
-                            if slot.get("type").unwrap().as_str().unwrap()
-                                == "kMixedRegularSplashable"
-                            {
-                                sub_slots_read += 1;
-                                if sub_slots_read == random_slot_to_ignore {
-                                    continue;
-                                }
-                            }
-
-                            let perks = slot.get("perks").unwrap().as_array().unwrap();
-
-                            let random_perk_index = rand::random::<usize>() % perks.len();
-                            let perk_id = perks.index(random_perk_index);
-
-                            selected_perks.push(perk_id.as_i64().unwrap());
-                        }
-
-                        info!("Selected perks: {:?}", selected_perks);
-
-                        // create a new json
-                        let json = json!({
-                            "name": format!("{} & {}", primary_style.get("name").unwrap().as_str().unwrap(), secondary_style.get("name").unwrap().as_str().unwrap()),
-                            "selectedPerkIds": selected_perks,
-                            "current": true,
-                            "primaryStyleId": primary_style.get("id").unwrap().as_i64().unwrap(),
-                            "subStyleId": secondary_style.get("id").unwrap().as_i64().unwrap()
-                        });
-
-                        json
-                    };
-
-                    socket
-                        .send(tungstenite::Message::Text(
-                                "[2, \"bundolrequest\", \"DELETE /lol-perks/v1/pages\"]".to_string(),
-                        ))
-                        .unwrap();
-
-                    loop {
-                        let read = socket.read();
-                        let msg = read.unwrap();
-
-                        let desserialized =
-                            serde_json::from_str::<Vec<Value>>(&msg.to_string()).unwrap();
-
-                        if desserialized.index(1).as_str().unwrap() == "bundolrequest" {
-                            if desserialized.index(0).as_u64().unwrap() == 4 {
-                                info!("FAILED TO DELETE RUNES: {}", desserialized.index(3).to_string());
-                            }
-
-                            break;
-                        }
-                    }
-
-                    socket
-                        .send(tungstenite::Message::Text(
-                            format!(
-                                "[2, \"bundolrequest\", \"POST /lol-perks/v1/pages\", {}]",
-                                runes.to_string()
-                            )
-                            .to_string(),
-                        ))
-                        .unwrap();
-
-                    loop {
-                        let read = socket.read();
-                        let msg = read.unwrap();
-
-                        let desserialized =
-                            serde_json::from_str::<Vec<Value>>(&msg.to_string()).unwrap();
-
-                        if desserialized.index(1).as_str().unwrap() == "bundolrequest" {
-                            if desserialized.index(0).as_u64().unwrap() == 4 {
-                                info!("FAILED TO CHANGE RUNES: {}", desserialized.index(3).to_string());
-                            }
-                            break;
-                        }
-                    }
-                }
-            }
-
-            window.emit("lcu-message", Some(msg.to_string())).unwrap();
-
-            if msg.is_close() {
-                break;
-            }
-
-            continue;
-        };
-
-        info!("Connection closed: {}", read.err().unwrap());
-        break;
+        let broke = process_events(&mut socket, window, &spell_ids);
+        if broke {
+            info!("Connection closed");
+            break;
+        }
     }
 
     window.emit("lcu-disconnected", Option::<()>::None).unwrap();
@@ -783,13 +907,25 @@ fn main() {
 
             Ok(())
         })
-        .plugin(tauri_plugin_log::Builder::default().level(LevelFilter::Info).timezone_strategy(TimezoneStrategy::UseLocal).targets([LogTarget::Stdout, LogTarget::Folder(tauri::api::path::app_log_dir(&tauri::Config::default()).unwrap())]).build())
+        .plugin(
+            tauri_plugin_log::Builder::default()
+                .level(LevelFilter::Info)
+                .timezone_strategy(TimezoneStrategy::UseLocal)
+                .targets([
+                    LogTarget::Stdout,
+                    LogTarget::Folder(
+                        tauri::api::path::app_log_dir(&tauri::Config::default()).unwrap(),
+                    ),
+                ])
+                .build(),
+        )
         .invoke_handler(tauri::generate_handler![
             is_connected_to_lcu,
             lcu_summoner_name,
             get_pickable_champions,
             ready,
-            create_lobby
+            create_lobby,
+            set_user_status
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
