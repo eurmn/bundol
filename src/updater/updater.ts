@@ -2,7 +2,7 @@ import { checkUpdate } from "@tauri-apps/api/updater";
 import { WebviewWindow } from "@tauri-apps/api/window";
 
 export function checkForUpdates() {
-  let i = setInterval(async () => {
+  let c = async () => {
     try {
       const { shouldUpdate } = await checkUpdate();
 
@@ -25,5 +25,8 @@ export function checkForUpdates() {
     } catch (error) {
       console.error(error);
     }
-  }, 1000 * 60 * 20);
+  };
+
+  c();
+  let i = setInterval(c, 1000 * 60 * 20);
 }

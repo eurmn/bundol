@@ -18,15 +18,17 @@ const StatusDescriptions = {
   mobile: "Mobile",
   offline: "Invisível",
   disconnected: "Offline",
+  dnd: "InGame",
 };
 
 const StatusColors = {
   away: "bg-red",
   chat: "bg-green",
-  mobile: "bg-blue",
+  dnd: "bg-blue",
+  mobile: "bg-truegray",
   offline: "bg-truegray",
   disconnected: "bg-truegray",
-}
+};
 
 function App() {
   checkForUpdates();
@@ -155,26 +157,30 @@ function App() {
             <div class="i-mdi-users" />
             <span>INVOCADORES:</span>
             <div
-              class={`${
-                status() !== "disconnected" ? "group " : ""
-              }h-full flex px-6 text-sm gap-2 items-center ml-auto my-auto
-              font-semibold text-gray-3 cursor-pointer relative`}
+              class="h-full flex px-6 text-sm gap-2 items-center ml-auto my-auto
+              font-semibold text-gray-3 cursor-pointer relative"
             >
-              <span class="relative">
-                <span>
-                  {StatusDescriptions[status()]}
-                  {currentSummoner() ? ` (${currentSummoner()})` : ""}
-                </span>
+              <div
+                class={`${
+                  status() !== "disconnected" ? "group " : ""
+                }flex gap-2 items-center relative`}
+              >
                 <div
-                  class="absolute bottom-0 translate-y-full border-1 hover:children:text-white text-gray-4
-                children:(py-0.5 px-1 transition-200 text-right w-full)
-                font-normal left-1/2 -translate-x-1/2 invisible group-hover:visible w-full"
+                  class="absolute bottom-0 translate-y-full border-1
+                    text-gray-4 px-1 font-normal left-1/2 -translate-x-1/2 invisible
+                    group-hover:visible w-full"
                 >
-                  <For each={["chat", "offline", "mobile", "away"]}>
+                  <For
+                    each={Object.keys(StatusDescriptions)
+                      .filter(
+                        (s) =>
+                          s !== status() && s !== "dnd" && s !== "disconnected"
+                      )
+                      .sort()}
+                  >
                     {(s) => (
-
                       <div
-                        class="my-auto"
+                        class="py-0.5 transition-200 text-right w-full hover:text-white"
                         onclick={() => invoke("set_user_status", { status: s })}
                       >
                         {StatusDescriptions[s]}
@@ -182,15 +188,21 @@ function App() {
                     )}
                   </For>
                 </div>
-              </span>
-              <span
-                class={`h-2 w-2 ${StatusColors[status()]} rounded-full relative group-hover:bg-transparent`}
-              >
-                <div
-                  class="text-xl absolute top-1/2 left-1/2 i-mdi-chevron-down
+                <span>
+                  {StatusDescriptions[status()]}
+                  {currentSummoner() ? ` (${currentSummoner()})` : ""}
+                </span>
+                <span
+                  class={`h-2 w-2 ${
+                    StatusColors[status()]
+                  } rounded-full relative group-hover:bg-transparent`}
+                >
+                  <div
+                    class="text-xl absolute top-1/2 left-1/2 i-mdi-chevron-down
                   -translate-1/2 opacity-0 group-hover:opacity-100"
-                ></div>
-              </span>
+                  ></div>
+                </span>
+              </div>
               <div class="border-r-truegray-5 border-1 border-r-solid w-1 h-4 my-auto" />
               <div class="font-normal cursor-pointer text-truegray-4 select-none">
                 <div

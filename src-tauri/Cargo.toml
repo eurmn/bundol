@@ -43,6 +43,7 @@ futures-util = "0.3.28"
 log = "0.4.20"
 tauri-plugin-log = { git = "https://github.com/tauri-apps/plugins-workspace", branch = "dev" }
 lazy_static = "1.4.0"
+uuid = { version = "1.4.1", features = ["v4"] }
 
 [features]
 # this feature is used for production builds or when `devPath` points to the filesystem
